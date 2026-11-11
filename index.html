@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diabetes · App serverless</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root { --fondo:#f4f6fb; --tarjeta:#fff; --texto:#1c2433; --sutil:#5d6778; --borde:#dfe4ec; --primario:#2563eb; --rojo:#dc2626; --verde:#16a34a; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, "Segoe UI", Roboto, sans-serif; background:var(--fondo); color:var(--texto); }
+    header { background:#0f1b33; color:#fff; padding:1rem 1.5rem; }
+    header h1 { margin:0; font-size:1.3rem; }
+    header p { margin:.2rem 0 0; color:#a9b8d6; font-size:.85rem; }
+    main { max-width:1150px; margin:0 auto; padding:1.25rem 1rem 3rem; }
+    .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.8rem; margin-bottom:1rem; }
+    .kpi { background:var(--tarjeta); border:1px solid var(--borde); border-radius:10px; padding:.9rem 1rem; }
+    .kpi span { display:block; color:var(--sutil); font-size:.8rem; }
+    .kpi strong { font-size:1.6rem; }
+    .graficas { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-bottom:1rem; }
+    .tarjeta { background:var(--tarjeta); border:1px solid var(--borde); border-radius:10px; padding:1rem 1.1rem; }
+    .tarjeta h2 { margin:0 0 .8rem; font-size:1rem; }
+    .filtros { display:flex; flex-wrap:wrap; gap:.7rem; align-items:flex-end; margin-bottom:.9rem; }
+    .filtros label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; font-weight:600; color:var(--sutil); }
+    input, select { font:inherit; padding:.5rem .6rem; border:1px solid var(--borde); border-radius:6px; min-width:110px; }
+    button { font:inherit; font-weight:600; padding:.55rem 1rem; border:0; border-radius:6px; background:var(--primario); color:#fff; cursor:pointer; }
+    button.secundario { background:#e8edf6; color:var(--texto); }
+    button:disabled { opacity:.5; cursor:default; }
+    .scroll { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:.88rem; }
+    th, td { padding:.5rem .55rem; border-bottom:1px solid var(--borde); text-align:right; white-space:nowrap; }
+    th { background:#f6f8fc; color:var(--sutil); font-size:.75rem; text-transform:uppercase; }
+    th:first-child, td:first-child { text-align:left; }
+    .si { color:var(--rojo); font-weight:600; } .no { color:var(--verde); font-weight:600; }
+    .pie { display:flex; justify-content:space-between; align-items:center; margin-top:.8rem; color:var(--sutil); font-size:.85rem; }
+    .mensaje { padding:.7rem .9rem; border-radius:6px; background:#fdecea; color:var(--rojo); margin-bottom:.8rem; display:none; }
+    footer { text-align:center; color:var(--sutil); font-size:.8rem; padding:1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pima Indians Diabetes · Consulta de pacientes</h1>
+    <p>Página en Vercel · Funciones serverless /api · Base de datos PostgreSQL serverless en Neon</p>
+  </header>
+
+  <main>
+    <!-- Indicadores generales (vienen de /api/estadisticas) -->
+    <section class="kpis">
+      <div class="kpi"><span>Registros en la base</span><strong id="kTotal">—</strong></div>
+      <div class="kpi"><span>Con diabetes</span><strong id="kDiab">—</strong></div>
+      <div class="kpi"><span>Glucosa promedio (mg/dL)</span><strong id="kGlu">—</strong></div>
+      <div class="kpi"><span>IMC promedio</span><strong id="kImc">—</strong></div>
+      <div class="kpi"><span>Edad promedio</span><strong id="kEdad">—</strong></div>
+    </section>
+
+    <!-- Gráficas -->
+    <section class="graficas">
+      <div class="tarjeta"><h2>% con diabetes por rango de edad</h2><canvas id="gEdad" height="200"></canvas></div>
+      <div class="tarjeta"><h2>% con diabetes por rango de glucosa</h2><canvas id="gGlu" height="200"></canvas></div>
+    </section>
+
+    <!-- Búsqueda y tabla (vienen de /api/pacientes) -->
+    <section class="tarjeta">
+      <h2>Buscar pacientes</h2>
+      <div class="filtros">
+        <label>ID del paciente <input id="fId" type="number" min="1" placeholder="Ej. 25"></label>
+        <label>Resultado
+          <select id="fOutcome"><option value="">Todos</option><option value="1">Con diabetes</option><option value="0">Sin diabetes</option></select>
+        </label>
+        <label>Edad mínima <input id="fMin" type="number" min="0" placeholder="21"></label>
+        <label>Edad máxima <input id="fMax" type="number" min="0" placeholder="81"></label>
+        <button id="bBuscar">Buscar</button>
+        <button id="bLimpiar" class="secundario">Limpiar</button>
+      </div>
+      <div id="mensaje" class="mensaje"></div>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>ID</th><th>Embarazos</th><th>Glucosa</th><th>Presión</th><th>Pliegue cutáneo</th>
+            <th>Insulina</th><th>IMC</th><th>Antecedentes</th><th>Edad</th><th>Diabetes</th>
+          </tr></thead>
+          <tbody id="tabla"><tr><td colspan="10">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pie">
+        <span id="info">—</span>
+        <span><button id="bAnt" class="secundario">← Anterior</button> <button id="bSig" class="secundario">Siguiente →</button></span>
+      </div>
+    </section>
+  </main>
+
+  <footer>Dataset: Pima Indians Diabetes Database (Kaggle) · Actividad Unidad 4 · Patrón serverless</footer>
+
+  <script>
+    let pagina = 1, totalPaginas = 1;
+    const $ = (id) => document.getElementById(id);
+    const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+
+    function mostrarError(texto) { $('mensaje').textContent = texto; $('mensaje').style.display = texto ? 'block' : 'none'; }
+
+    // Gráfica de barras con el porcentaje de diabetes por grupo
+    function grafica(canvas, filas) {
+      if (typeof Chart === 'undefined') return; // si no carga la librería, la app sigue funcionando sin gráficas
+      new Chart($(canvas), {
+        type: 'bar',
+        data: {
+          labels: filas.map(f => f.rango),
+          datasets: [{ label: '% con diabetes', data: filas.map(f => pct(f.con_diabetes, f.total)), backgroundColor: '#2563eb', borderRadius: 4 }]
+        },
+        options: {
+          plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => `${filas[c.dataIndex].con_diabetes} de ${filas[c.dataIndex].total} pacientes` } } },
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } }
+        }
+      });
+    }
+
+    async function cargarEstadisticas() {
+      const r = await fetch('/api/estadisticas');
+      const d = await r.json();
+      if (!r.ok) return mostrarError(d.error);
+      $('kTotal').textContent = d.resumen.total;
+      $('kDiab').textContent = `${d.resumen.con_diabetes} (${pct(d.resumen.con_diabetes, d.resumen.total)}%)`;
+      $('kGlu').textContent = d.resumen.glucosa_promedio;
+      $('kImc').textContent = d.resumen.imc_promedio;
+      $('kEdad').textContent = d.resumen.edad_promedio;
+      grafica('gEdad', d.porEdad);
+      grafica('gGlu', d.porGlucosa);
+    }
+
+    async function buscar() {
+      mostrarError('');
+      const params = new URLSearchParams();
+      const id = $('fId').value.trim();
+      if (id) params.set('id', id);
+      else {
+        if ($('fOutcome').value) params.set('outcome', $('fOutcome').value);
+        if ($('fMin').value) params.set('edadMin', $('fMin').value);
+        if ($('fMax').value) params.set('edadMax', $('fMax').value);
+        params.set('pagina', pagina);
+      }
+      $('tabla').innerHTML = '<tr><td colspan="10">Consultando la función serverless…</td></tr>';
+      const r = await fetch('/api/pacientes?' + params);
+      const d = await r.json();
+      if (!r.ok) { $('tabla').innerHTML = ''; $('info').textContent = '—'; return mostrarError(d.error); }
+
+      $('tabla').innerHTML = d.datos.map(p => `
+        <tr>
+          <td>${p.id}</td><td>${p.pregnancies}</td><td>${p.glucose}</td><td>${p.blood_pressure}</td>
+          <td>${p.skin_thickness}</td><td>${p.insulin}</td><td>${p.bmi}</td><td>${p.diabetes_pedigree_function}</td>
+          <td>${p.age}</td><td class="${p.outcome == 1 ? 'si' : 'no'}">${p.outcome == 1 ? 'Sí' : 'No'}</td>
+        </tr>`).join('') || '<tr><td colspan="10">Sin resultados.</td></tr>';
+
+      totalPaginas = id ? 1 : Math.max(1, Math.ceil(d.total / d.porPagina));
+      $('info').textContent = id ? `Paciente ${id}` : `${d.total} pacientes · página ${pagina} de ${totalPaginas}`;
+      $('bAnt').disabled = pagina <= 1 || !!id;
+      $('bSig').disabled = pagina >= totalPaginas || !!id;
+    }
+
+    $('bBuscar').onclick = () => { pagina = 1; buscar(); };
+    $('bLimpiar').onclick = () => { ['fId', 'fMin', 'fMax'].forEach(i => $(i).value = ''); $('fOutcome').value = ''; pagina = 1; buscar(); };
+    $('bAnt').onclick = () => { pagina--; buscar(); };
+    $('bSig').onclick = () => { pagina++; buscar(); };
+    $('fId').addEventListener('keydown', e => { if (e.key === 'Enter') { pagina = 1; buscar(); } });
+
+    cargarEstadisticas();
+    buscar();
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "diabetes-serverless",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Aplicación web serverless (Vercel Functions + Neon PostgreSQL) para consultar el Pima Indians Diabetes Database",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0"
+  }
+}
